@@ -1,0 +1,34 @@
+name: 临时 SSH 机器
+
+# 【只能手动触发】千万不要加 on: push —— 否则每次提交都开一台机器
+# 干等着你去连, 白烧时间还占并发额度.
+on:
+  workflow_dispatch:
+
+jobs:
+  box:
+    runs-on: ubuntu-latest
+    # 6 小时(360)是 GitHub 的硬上限, 到点强杀, 改不了.
+    # 这里给 60 分钟: 够调试, 又不至于忘了关一直挂着.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 这台机器长什么样
+        run: |
+          echo "===== CPU ====="; nproc; grep -m1 'model name' /proc/cpuinfo
+          echo "===== 内存 ====="; free -h
+          echo "===== 磁盘 ====="; df -h /
+          echo "===== 内核 ====="; uname -a
+          echo "===== 有没有 sch_fq (tcpfit 靠它做 pacing) ====="
+          ls /lib/modules/"$(uname -r)"/kernel/net/sched/sch_fq.ko* 2>/dev/null || echo "没有"
+          echo "===== 出口 IP ====="; curl -s https://api.ipify.org; echo
+
+      - name: 开 SSH 会话
+        uses: mxschmitt/action-tmate@v3
+        with:
+          # 【必须开着】这个仓库是公开的, workflow 日志谁都能看.
+          # 不限制的话连接串等于贴在公网上, 任何人都能 SSH 进这台机器,
+          # 而这台机器里有能读写你仓库的 GITHUB_TOKEN.
+          # 开了之后只有触发本次运行的 GitHub 账号能连(用你账号注册的 SSH 公钥).
+          limit-access-to-actor: true

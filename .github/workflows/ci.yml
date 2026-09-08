@@ -1,0 +1,44 @@
+name: CI
+
+# 公开仓库用 GitHub 托管 runner 不花钱, 所以每次 push 和 PR 都跑.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:          # 也可以在 Actions 页面手动点一次
+
+jobs:
+  check:
+    runs-on: ubuntu-latest    # 公开仓库 = 4 核 / 16 GB / 14 GB 盘, 免费
+    steps:
+      - uses: actions/checkout@v4
+
+      # 最便宜也最值钱的一道闸: 语法错误拦在合并之前.
+      # 这个项目是给别人 curl | bash 装的, 推一个语法错等于线上事故.
+      - name: bash 语法检查
+        run: |
+          bash -n tcpfit.sh
+          bash -n install.sh
+
+      # error 级作为硬门槛 —— 当前是 0 条, 保证 CI 从第一天就是绿的.
+      - name: shellcheck (error 级, 不过就挂)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq shellcheck
+          shellcheck -s bash -S error tcpfit.sh install.sh
+
+      # warning 级只报不拦. 现有 4 条都是 SC2034「变量声明了没用到」,
+      # 属于洁癖范畴, 不值得为它卡住合并.
+      - name: shellcheck (warning 级, 只报告)
+        continue-on-error: true
+        run: shellcheck -s bash -S warning tcpfit.sh install.sh
+
+      # 这一步拦的是真实发生过的事故: 改完 tcpfit.sh 忘了更新 SHA256SUMS.
+      # tcpfit update 会从 release 拉 SHA256SUMS 校验(见 cmd_update),
+      # 对不上就 die "SHA256 校验不通过, 未更新" —— 等于所有老用户的更新全断,
+      # 而且报错发生在用户机器上, 你这边一点感知都没有.
+      - name: SHA256SUMS 与文件是否同步
+        run: |
+          if ! sha256sum -c SHA256SUMS; then
+            echo "::error::SHA256SUMS 和实际文件对不上。改完脚本请跑: sha256sum tcpfit.sh install.sh > SHA256SUMS"
+            exit 1
+          fi
