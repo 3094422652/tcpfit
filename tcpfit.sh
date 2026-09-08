@@ -494,6 +494,22 @@ detect_link_mbps(){
   [[ "$s" =~ ^[0-9]+$ ]] && [ "$s" -gt 0 ] && echo "$s" || echo ""
 }
 
+# 网卡驱动名. 只靠 ethtool 会在最小化镜像上永远返回空 ——
+# Debian/Ubuntu 的 cloud/minimal 镜像和 Alpine 都不预装 ethtool,
+# 而 Driver 一栏空着会让用户以为没识别到网卡. sysfs 里本来就有, 零依赖.
+detect_driver(){   # detect_driver <iface>
+  local i="$1" d
+  d=$(ethtool -i "$i" 2>/dev/null | awk -F': ' '/^driver/{print $2}')
+  # 必须先用 -L 确认它真是符号链接: readlink -f 对【不存在的最后一级】照样
+  # 打印路径, 于是 basename 会把 "driver" 这四个字母当成驱动名返回.
+  # 桥接/veth/bond 这类没有 driver 链接的网卡就会显示成 Driver: driver.
+  if [ -z "$d" ] && [ -L "/sys/class/net/$i/device/driver" ]; then
+    d=$(readlink -f "/sys/class/net/$i/device/driver" 2>/dev/null)
+    d="${d##*/}"
+  fi
+  printf '%s' "$d"
+}
+
 cmd_detect(){
   local iface rtt ram cores link virt kern cc_avail queues
   iface=$(detect_iface); [ -n "$iface" ] || die "找不到默认路由网卡"
@@ -507,7 +523,7 @@ cmd_detect(){
 
   echo "── Machine profile ──"
   kv "Interface"   "$iface"
-  kv "Driver"      "$(ethtool -i "$iface" 2>/dev/null | awk -F': ' '/^driver/{print $2}')"
+  kv "Driver"      "$(detect_driver "$iface")"
   kv "RX queues"   "$queues"
   kv "Link speed"  "${link:-n/a (virtual NIC)}"
   kv "Kernel"      "$kern"
@@ -1766,6 +1782,18 @@ qdisc_is_fq(){   # root fq，或 mq 下所有硬件队列均为 fq
        END{exit !(leaves>0 && bad==0)}' <<<"$out"
 }
 
+# fq 装不上时该说什么.
+# 老版本在这条路径上打印"检查对端是否可达/空闲" —— 对端是无辜的, 那句话
+# 把用户送去 ping 对端、换测速节点、重装系统, 永远查不到真因在本机内核.
+# 真实场景: LXC/OpenVZ 便宜 VPS 共享宿主内核, 容器内 tc 常被完全禁掉;
+# 部分云厂商自编内核裁掉 sch_*; fq 本身要内核 >= 3.12.
+fq_unavailable_hint(){   # fq_unavailable_hint <iface>
+  warn "无法在 ${1} 上启用 fq qdisc —— 这是本机内核/容器的限制, 与对端无关."
+  warn "  常见于: LXC/OpenVZ 容器内 tc 受限 / 内核未编入 sch_fq / 内核早于 3.12"
+  warn "  自查:   tc qdisc add dev ${1} root fq      看内核报什么"
+  warn "  尝试:   modprobe sch_fq                    无模块内核则需换内核"
+}
+
 # mq 是网卡的硬件多队列结构，不能为了启用 fq 把它压成单队列 root fq.
 # 保留 mq 根，只替换每个叶子；普通网卡则安装 root fq.
 qdisc_set_fq(){   # qdisc_set_fq <iface>
@@ -2006,7 +2034,18 @@ probe_bandwidth(){
   qdisc_save "$iface"
   trap 'qdisc_restore; exit 130' INT TERM HUP
   # 用 fq 做 pacing 但不设上限: 既避免突发打穿限速器, 又能探到真实上限
-  qdisc_set_fq "$iface" || { qdisc_restore; echo ""; return 1; }
+  #
+  # fq 装不上时【不能直接失败】. probe 只是给 tune 估个 BDP, 无 pacing 的估值
+  # 偏高但仍然可用; 而在 LXC/OpenVZ 这类装不了 fq 的机器上硬失败, 等于整个
+  # 向导走不下去 —— 那恰恰是最需要调优的一批廉价机器.
+  # 必须有 pacing 的是 sweep: 拐点的定义就是"贴着上限跑而几乎不丢包",
+  # 没有 pacing 测到的只是突发打穿限速器的假象, 所以那边仍然硬失败.
+  if ! qdisc_set_fq "$iface"; then
+    qdisc_restore            # set_fq 失败时根 qdisc 已被拆掉, 先装回来再裸测
+    fq_unavailable_hint "$iface"
+    warn "  本次探测改为【不带 pacing】继续, 结果可能偏高, 仅用于估算 BDP."
+    warn "  想要准确的限速器拐点, 仍需要一个支持 fq 的内核."
+  fi
   local res gp
   for a in 1 2 3; do res=$(run_iperf "$peer" "$dur" 4); [ -n "$res" ] && break; sleep 8; done
   trap - INT TERM HUP
@@ -2280,7 +2319,8 @@ cmd_sweep(){
   if [ -z "$user_range" ]; then
     info "Unshaped probe (no rate limit, ${dur}s, 1 stream)"
     printf '  %-10s %12s %9s %8s  %s\n' "Rate/Mbit" "Goodput/Mbps" "Retrans" "Loss%" "Verdict"
-    qdisc_set_fq "$iface" || { qdisc_restore; warn "failed to enable fq for unshaped probe"; return 2; }
+    qdisc_set_fq "$iface" || { qdisc_restore; fq_unavailable_hint "$iface"
+      warn "  拐点扫描必须有 pacing, 无法降级. 可改用 tune --bw <数字> 手填带宽."; return 2; }
     local ures urt
     for _ in 1 2 3; do ures=$(run_iperf "$peer" "$dur" 1); [ -n "$ures" ] && break; sleep 8; done
     [ -n "$ures" ] || { qdisc_restore; warn "unshaped probe failed, check the peer"; return 2; }
@@ -2335,7 +2375,8 @@ cmd_sweep(){
          'BEGIN{exit !(g <= c && l > t)}'; then
       local ares="" ag art ar alp
       info "Single stream is inconclusive on a ${nominal} Mbit host; checking 8-stream aggregate"
-      qdisc_set_fq "$iface" || { qdisc_restore; warn "failed to enable fq for aggregate probe"; return 2; }
+      qdisc_set_fq "$iface" || { qdisc_restore; fq_unavailable_hint "$iface"
+        warn "  拐点扫描必须有 pacing, 无法降级. 可改用 tune --bw <数字> 手填带宽."; return 2; }
       for _ in 1 2 3; do ares=$(run_iperf "$peer" "$dur" 8); [ -n "$ares" ] && break; sleep 8; done
       qdisc_restore
       if [ -n "$ares" ]; then
