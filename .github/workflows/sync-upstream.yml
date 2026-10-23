@@ -1,0 +1,120 @@
+name: Sync Upstream (Kylin010/tcpfit)
+
+on:
+  schedule:
+    # 每天北京时间 04:00 (UTC 20:00) 自动检查原仓库更新
+    - cron: '0 20 * * *'
+  workflow_dispatch:
+    inputs:
+      rollback_version:
+        description: '可选：如需将 main 分支回退到某个历史版本，填入版本号（如 v0.5.9 或 v0.5.8）；留空则正常同步上游最新代码'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "3094422652"
+          git config user.email "3094422652@users.noreply.github.com"
+
+      - name: Rollback main branch to historical tag (if requested)
+        if: ${{ github.event.inputs.rollback_version != '' }}
+        env:
+          TARGET_TAG: ${{ github.event.inputs.rollback_version }}
+        run: |
+          set -euo pipefail
+          if ! git rev-parse "$TARGET_TAG" >/dev/null 2>&1; then
+            echo "错误: 找不到历史版本标签 $TARGET_TAG" >&2
+            exit 1
+          fi
+          git checkout "$TARGET_TAG" -- tcpfit.sh install.sh README.md SHA256SUMS
+          python3 .github/scripts/sync_upstream.py
+          bash -n tcpfit.sh
+          bash -n install.sh
+          if [ -n "$(git status --porcelain)" ]; then
+            git add -A
+            git commit -m "revert: rollback main branch to $TARGET_TAG"
+            git push origin main
+            echo "已成功将 main 分支回退到 $TARGET_TAG"
+          else
+            echo "当前 main 分支已经是 $TARGET_TAG 的内容，无需改动"
+          fi
+
+      - name: Fetch and patch upstream Kylin010/tcpfit
+        if: ${{ github.event.inputs.rollback_version == '' }}
+        id: sync_step
+        run: |
+          set -euo pipefail
+          git remote add upstream https://github.com/Kylin010/tcpfit.git || git remote set-url upstream https://github.com/Kylin010/tcpfit.git
+          git fetch upstream main --tags
+
+          # 从上游 main 检出项目文件（保留本仓库的 .github 自动同步脚本）
+          git checkout upstream/main -- .gitignore LICENSE README.md SHA256SUMS install.sh tcpfit.sh inventory orchestrator results
+
+          # 自动替换仓库地址、关闭外部统计、更新 README 版本号安装命令、重算 SHA256SUMS
+          python3 .github/scripts/sync_upstream.py
+
+          # 安全自检：检查语法完整性和关键地址替换是否成功
+          bash -n tcpfit.sh
+          bash -n install.sh
+          grep -q 'SELF_URL="https://raw.githubusercontent.com/3094422652/tcpfit/' tcpfit.sh
+          if grep -q 'Kylin010/tcpfit' tcpfit.sh install.sh; then
+            echo "错误: 脚本中仍存在未替换的 Kylin010/tcpfit，中止推送！" >&2
+            exit 1
+          fi
+
+          VERSION=$(sed -n 's/^VERSION="\([^"]*\)".*/\1/p' tcpfit.sh | head -1)
+          if [ -z "$VERSION" ]; then
+            echo "错误: 无法解析 VERSION" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+          if [ -n "$(git status --porcelain)" ]; then
+            git add -A
+            git commit -m "chore(sync): sync upstream v$VERSION and apply fork patches"
+            git push origin main
+            echo "updated=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "没有检测到上游变更，当前已是最新状态 (v$VERSION)"
+            echo "updated=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create Tag and Release for new version (preserving all historical versions)
+        if: ${{ github.event.inputs.rollback_version == '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.sync_step.outputs.tag }}
+          VERSION: ${{ steps.sync_step.outputs.version }}
+        run: |
+          set -euo pipefail
+          # 如果该版本的 Tag 还不存在，则创建新 Tag（已存在的历史版本 Tag 绝不覆盖）
+          if ! git ls-remote --tags origin "refs/tags/$TAG" | grep -q "$TAG"; then
+            git tag "$TAG"
+            git push origin "$TAG"
+            echo "已创建并推送新版本标签: $TAG"
+          else
+            echo "历史版本标签 $TAG 已存在，保留原标签不覆盖"
+          fi
+
+          # 如果对应的 GitHub Release 还不存在，则自动发布并上传校验附件
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" tcpfit.sh install.sh SHA256SUMS \
+              --title "$TAG" \
+              --notes "Auto-synced and patched release $TAG for 3094422652/tcpfit."
+            echo "已自动发布 Release: $TAG"
+          else
+            echo "Release $TAG 已存在"
+          fi

@@ -6,6 +6,15 @@
 
 ## 安装
 
+**方式一：指定版本号安装（推荐，当前版本 `v0.5.9`）**
+> 如果后续同步的新版本不好用，直接把下方命令里的 `v0.5.9` 改成上一个版本号（例如 `v0.5.8` 或任意历史标签）即可直接运行并退回该版本：
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/3094422652/tcpfit/v0.5.9/tcpfit.sh)
+```
+
+**方式二：始终安装最新 `main` 分支**
+
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/3094422652/tcpfit/main/tcpfit.sh)
 ```
