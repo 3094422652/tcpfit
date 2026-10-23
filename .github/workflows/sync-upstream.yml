@@ -57,10 +57,11 @@ jobs:
         run: |
           set -euo pipefail
           git remote add upstream https://github.com/Kylin010/tcpfit.git || git remote set-url upstream https://github.com/Kylin010/tcpfit.git
-          git fetch upstream main --tags
+          # 只拉取上游 main 分支，不拉取上游未修补的 tag，保护本仓库已修补的历史版本标签
+          git fetch --no-tags upstream main:refs/remotes/upstream/main
 
           # 从上游 main 检出项目文件（保留本仓库的 .github 自动同步脚本）
-          git checkout upstream/main -- .gitignore LICENSE README.md SHA256SUMS install.sh tcpfit.sh inventory orchestrator results
+          git checkout refs/remotes/upstream/main -- .gitignore LICENSE README.md SHA256SUMS install.sh tcpfit.sh inventory orchestrator results
 
           # 自动替换仓库地址、关闭外部统计、更新 README 版本号安装命令、重算 SHA256SUMS
           python3 .github/scripts/sync_upstream.py
