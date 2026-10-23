@@ -335,7 +335,7 @@ disp(){
 # 为什么不能直接复制"正在运行的脚本"：bash <(curl ...) 时 $0 是 /dev/fd/63,
 # 内容已被 bash 读走, 再 cat 只能读到 0 字节；curl | bash 时 $0 = bash, 根本不可读.
 # 实测验证过这两种情况. 所以只能按版本号回拉, 并校验拉到的确实是同一版.
-SELF_URL="https://raw.githubusercontent.com/Kylin010/tcpfit/v${VERSION}/tcpfit.sh"
+SELF_URL="https://raw.githubusercontent.com/3094422652/tcpfit/v${VERSION}/tcpfit.sh"
 self_install(){
   [ "$(id -u)" = 0 ] || return 0
   case "$0" in "$SELF_PATH") return 0 ;; esac      # 已经是装好的那份
@@ -898,6 +898,7 @@ STATS_URL="https://tcpfit.spacevps.cc/ping"
 STATS_CACHE="$STATE_DIR/stats.json"
 
 telemetry_off(){
+  return 0
   [ -n "${TCPFIT_NO_TELEMETRY:-}" ] && return 0
   [ -f "$STATE_DIR/no-telemetry" ] && return 0
   return 1
@@ -2786,7 +2787,7 @@ cmd_update(){
   info "检查更新…"
   local latest
   # 只看 release, 不看 main —— main 可能领先于任何已发布版本
-  latest=$(curl -fsSL --max-time 10 "https://api.github.com/repos/Kylin010/tcpfit/releases/latest" 2>/dev/null \
+  latest=$(curl -fsSL --max-time 10 "https://api.github.com/repos/3094422652/tcpfit/releases/latest" 2>/dev/null \
            | grep -m1 '"tag_name"' | sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"v\{0,1\}\([^"]*\)".*/\1/')
   [ -n "$latest" ] || die "查不到最新版本, 检查网络或稍后再试" 2
 
@@ -2799,14 +2800,14 @@ cmd_update(){
   echo
   _conf "当前版本" "v$VERSION"
   _conf "最新版本" "v$latest"
-  _conf "更新说明" "https://github.com/Kylin010/tcpfit/releases/tag/v$latest"
+  _conf "更新说明" "https://github.com/3094422652/tcpfit/releases/tag/v$latest"
   echo
   confirm "  现在更新？" y || { info "已取消"; return 0; }
 
   # 从 release 下, 用发布的 SHA256SUMS 校验. 只对比 tcpfit.sh 那一行 ——
   # SHA256SUMS 里还有 install.sh, 直接 sha256sum -c 会因为文件不在而失败.
   local dl; dl=$(mktemp -d)
-  local base="https://github.com/Kylin010/tcpfit/releases/download/v$latest"
+  local base="https://github.com/3094422652/tcpfit/releases/download/v$latest"
   if ! curl -fsSL --max-time 60 "$base/tcpfit.sh" -o "$dl/tcpfit.sh"; then
     rm -rf "$dl"; die "下载失败" 2
   fi
@@ -3105,7 +3106,7 @@ banner(){
   _top
   _row "$(printf '  tcpfit - VPS TCP Optimization%s ' "$(_rpad "v$VERSION" 23)")" '0;32'
   _row "  本脚本由 kylin010 编写和维护"
-  _row "  github.com/Kylin010/tcpfit"
+  _row "  github.com/3094422652/tcpfit"
   _row "  VPS 补货频道  t.me/vpskuaibu"
   _row "  VPS 测评数据  spacevps.cc"
   _sep
@@ -3599,7 +3600,7 @@ wizard_result(){   # wizard_result <带宽> <整形值> <拐点> <余量> <内�
   echo "  ─────────────────────────────────────────────"
   echo "    菲比VPS补货频道：        t.me/vpskuaibu"
   echo "    星空VPS（免费API查阅机型）： spacevps.cc"
-  echo "    问题反馈：               github.com/Kylin010/tcpfit/issues"
+  echo "    问题反馈：               github.com/3094422652/tcpfit/issues"
   echo "    合作：                   4496540pva@gmail.com"
   echo
 }
