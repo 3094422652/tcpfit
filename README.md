@@ -7,7 +7,7 @@
 ## 安装
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/Kylin010/tcpfit/main/tcpfit.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/3094422652/tcpfit/main/tcpfit.sh)
 ```
 
 跑完直接出菜单, 选 1 全自动. 脚本会装到 `/usr/local/bin/tcpfit`, 以后敲 `tcpfit` 即可.

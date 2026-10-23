@@ -4,16 +4,16 @@
 # 两种用法：
 #
 #   1) 在目标 VPS 上直接跑（只装 agent, 单机调优）
-#      curl -fsSL https://raw.githubusercontent.com/Kylin010/tcpfit/main/install.sh | bash
+#      curl -fsSL https://raw.githubusercontent.com/3094422652/tcpfit/main/install.sh | bash
 #      然后: tcpfit detect
 #
 #   2) 在控制端跑（装完整项目, 管理多台机器 —— 未上线, 尚未在真实环境验证）
-#      curl -fsSL https://raw.githubusercontent.com/Kylin010/tcpfit/main/install.sh | bash -s -- --full
+#      curl -fsSL https://raw.githubusercontent.com/3094422652/tcpfit/main/install.sh | bash -s -- --full
 #      然后: cd /opt/tcpfit && python3 orchestrator/fleet.py detect
 
 set -euo pipefail
 
-REPO="Kylin010/tcpfit"
+REPO="3094422652/tcpfit"
 RAW="https://raw.githubusercontent.com/$REPO/main"
 PREFIX="${PREFIX:-/usr/local/bin}"
 PROJECT_DIR="${PROJECT_DIR:-/opt/tcpfit}"
