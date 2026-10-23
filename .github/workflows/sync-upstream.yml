@@ -42,8 +42,8 @@ jobs:
           python3 .github/scripts/sync_upstream.py
           bash -n tcpfit.sh
           bash -n install.sh
-          if [ -n "$(git status --porcelain)" ]; then
-            git add -A
+          git add -A
+          if ! git diff --cached --quiet; then
             git commit -m "revert: rollback main branch to $TARGET_TAG"
             git push origin main
             echo "已成功将 main 分支回退到 $TARGET_TAG"
@@ -83,8 +83,8 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
 
-          if [ -n "$(git status --porcelain)" ]; then
-            git add -A
+          git add -A
+          if ! git diff --cached --quiet; then
             git commit -m "chore(sync): sync upstream v$VERSION and apply fork patches"
             git push origin main
             echo "updated=true" >> "$GITHUB_OUTPUT"
